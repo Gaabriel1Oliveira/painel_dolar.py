@@ -28,7 +28,7 @@ ativos = {
 def obter_variacao(ticker, function):
     try:
         if function == "FX_DAILY":
-            data, meta_data = ts.get_daily(from_symbol=ticker[:3], to_symbol=ticker[3:], outputsize='compact')
+            data, meta_data = ts.get_daily(symbol=ticker[:3] + ticker[3:], outputsize='compact')  # Changed from_symbol/to_symbol to symbol
             preco_hoje = data['4. close'].iloc[-1]
             preco_ontem = data['4. close'].iloc[-2]
         elif function == "GLOBAL_QUOTE":
@@ -80,7 +80,7 @@ st.header("📉 Asset Charts")
 for nome, info in ativos.items():
     try:
         if info['function'] == "FX_DAILY":
-            data, meta_data = ts.get_daily(from_symbol=info['ticker'][:3], to_symbol=info['ticker'][3:], outputsize='full')
+            data, meta_data = ts.get_daily(symbol=info['ticker'][:3] + info['ticker'][3:], outputsize='full')  # Changed from_symbol/to_symbol to symbol
         elif info['function'] == "GLOBAL_QUOTE":
             data, meta_data = ts.get_quote(symbol=info['ticker'])
             data = pd.DataFrame(data, index=[0])  # Create a DataFrame for consistency
