@@ -1,6 +1,11 @@
 import streamlit as st
 import pandas as pd
 from alpha_vantage.timeseries import TimeSeries
+import yfinance as yf
+import logging
+
+# Configurar logging
+logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Substitua com sua chave da API Alpha Vantage
 API_KEY = "F9FKE00VA27LALAX"  # Obtenha sua chave de API gratuita do Alpha Vantage
@@ -15,43 +20,64 @@ ativos = {
     "USD/BRL": {"ticker": "USDBRL", "peso": 0.10, "function": "FX_DAILY"},
     "USD/AUD": {"ticker": "USDAUD", "peso": 0.10, "function": "FX_DAILY"},
     "USD/ZAR": {"ticker": "USDZAR", "peso": 0.10, "function": "FX_DAILY"},
-    "DXY": {"ticker": "DXY", "peso": 0.20, "function": "GLOBAL_QUOTE"},  # DXY pode não estar diretamente disponível
-    "Treasury 10Y": {"ticker": "^TNX", "peso": 0.10, "function": "GLOBAL_QUOTE"},  # Precisa encontrar alternativa
-    "VIX": {"ticker": "VIX", "peso": 0.10, "function": "GLOBAL_QUOTE"},  # Precisa encontrar alternativa
-    "Brent": {"ticker": "BRENT", "peso": -0.10, "function": "GLOBAL_QUOTE"},  # Precisa encontrar alternativa
-    "WTI": {"ticker": "WTI", "peso": -0.10, "function": "GLOBAL_QUOTE"},  # Precisa encontrar alternativa
+    "DXY": {"ticker": "DXY", "peso": 0.20, "function": "GLOBAL_QUOTE"},
+    "Treasury 10Y": {"ticker": "^TNX", "peso": 0.10, "function": "GLOBAL_QUOTE"},
+    "VIX": {"ticker": "VIX", "peso": 0.10, "function": "GLOBAL_QUOTE"},
+    "Brent": {"ticker": "BRENT", "peso": -0.10, "function": "GLOBAL_QUOTE"},
+    "WTI": {"ticker": "WTI", "peso": -0.10, "function": "GLOBAL_QUOTE"},
 }
 
 
 @st.cache_data
 def obter_variacao(ticker, function):
     try:
+        preco_hoje = None
+        preco_ontem = None
+
         if function == "FX_DAILY":
-            data, meta_data = ts.get_daily(symbol=ticker[:3] + ticker[3:], outputsize='compact')
-            if data is not None and not data.empty:  # Verifica se há dados
+            data = ts.get_daily(symbol=ticker[:3] + ticker[3:], outputsize='compact')[0]
+            if data is not None and not data.empty:
                 preco_hoje = data['4. close'].iloc[-1]
                 preco_ontem = data['4. close'].iloc[-2]
             else:
+                logging.warning(f"Dados ausentes da Alpha Vantage para {ticker}")
                 return None, None
+
         elif function == "GLOBAL_QUOTE":
-            try:  # Tenta usar GLOBAL_QUOTE, se falhar, retorna None
-                data, meta_data = ts.get_quote(symbol=ticker)
-                if data is not None and data['05. price'] is not None:  # Verifica se há o preço
-                    preco_hoje = float(data['05. price'])
-                    preco_ontem = float(data['05. price'])  # Aproximação - Variação diária não diretamente disponível
-                else:
-                    return None, None
-            except Exception as e:
-                print(f"Erro ao obter GLOBAL_QUOTE para {ticker}: {e}")
+            if ticker == "DXY":
+                ticker_yf = "DX-Y.NYB"  # Ticker correto para DXY no Yahoo Finance
+            elif ticker == "^TNX":
+                ticker_yf = "^TNX"  # Ticker correto para Treasury 10Y
+            elif ticker == "VIX":
+                ticker_yf = "^VIX"  # Ticker correto para VIX
+            elif ticker == "BRENT":
+                ticker_yf = "BZ=F"  # Ticker correto para Brent
+            elif ticker == "WTI":
+                ticker_yf = "CL=F"  # Ticker correto para WTI
+            else:
+                logging.warning(f"Ticker {ticker} não suportado para GLOBAL_QUOTE")
                 return None, None
+
+            data_yf = yf.download(ticker_yf, period="2d", interval="1d")
+            if data_yf is not None and not data_yf.empty:
+                preco_hoje = data_yf['Close'].iloc[-1]
+                preco_ontem = data_yf['Close'].iloc[-2]
+            else:
+                logging.warning(f"Dados ausentes do Yahoo Finance para {ticker}")
+                return None, None
+
+        else:
+            logging.error(f"Função desconhecida para {ticker}: {function}")
+            return None, None
+
+        if preco_hoje is not None and preco_ontem is not None:
+            variacao = ((preco_hoje - preco_ontem) / preco_ontem) * 100
+            return variacao, preco_hoje
         else:
             return None, None
 
-        variacao = ((preco_hoje - preco_ontem) / preco_ontem) * 100
-        return variacao, preco_hoje
-
     except Exception as e:
-        print(f"Erro ao buscar dados para {ticker}: {e}")
+        logging.error(f"Erro ao obter dados para {ticker}: {e}")
         return None, None
 
 
@@ -97,14 +123,14 @@ for i, (nome, info) in enumerate(ativos.items()):
                 st.metric(label=nome, value=f"{preco:.4f}", delta=f"{variacao:.2f}% ({sinal})")
             except Exception as e:
                 st.warning(f"Erro ao exibir métrica para {nome}: {e}")
-            if nome == "DXY":
-                variacao_dxy = variacao
-            elif nome == "Treasury 10Y":
-                variacao_treasury = variacao
-            elif nome == "Brent" or nome == "WTI":
-                variacao_petroleo = variacao  # Assume Brent e WTI seguem a mesma tendência
         else:
             st.warning(f"Dados indisponíveis para {nome}")
+        if nome == "DXY" and variacao is not None:
+            variacao_dxy = variacao
+        elif nome == "Treasury 10Y" and variacao is not None:
+            variacao_treasury = variacao
+        elif (nome == "Brent" or nome == "WTI") and variacao is not None:
+            variacao_petroleo = variacao  # Assume Brent e WTI seguem a mesma tendência
 
 # Análise de cenário
 st.markdown("---")
